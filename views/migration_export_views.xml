@@ -1,0 +1,110 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- ============================
+         Wizard de Push Manual
+         ============================ -->
+    <record id="view_migration_push_wizard_form" model="ir.ui.view">
+        <field name="name">migration.push.wizard.form</field>
+        <field name="model">migration.push.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Push Manual de Migración">
+                <group string="Configuración de Conexión">
+                    <group>
+                        <field name="company_id"/>
+                        <field name="batch_size"/>
+                        <field name="inter_batch_pause"/>
+                    </group>
+                    <group>
+                        <field name="target_url"
+                               placeholder="https://mi-odoo18.ejemplo.com"/>
+                        <field name="target_api_key" password="True"/>
+                    </group>
+                </group>
+
+                <separator string="Modelos a Exportar"/>
+                <field name="model_line_ids" nolabel="1">
+                    <tree editable="bottom">
+                        <field name="selected" widget="boolean_toggle"/>
+                        <field name="sequence" column_invisible="True"/>
+                        <field name="model_name" readonly="1"/>
+                        <field name="record_count" readonly="1"/>
+                    </tree>
+                </field>
+
+                <div attrs="{'invisible': [('result_message', '=', False)]}">
+                    <separator string="Resultado"/>
+                    <field name="result_message" widget="text" readonly="1"
+                           nolabel="1"/>
+                </div>
+
+                <footer>
+                    <button name="action_push_now"
+                            string="&#128640; Push Ahora"
+                            type="object"
+                            class="btn-primary"/>
+                    <button string="Cerrar"
+                            class="btn-secondary"
+                            special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <!-- Acción para abrir el wizard -->
+    <record id="action_migration_push_wizard" model="ir.actions.act_window">
+        <field name="name">Push Manual de Migración</field>
+        <field name="res_model">migration.push.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+
+    <!-- ============================
+         Log de Exportación
+         ============================ -->
+    <record id="view_migration_export_log_tree" model="ir.ui.view">
+        <field name="name">migration.export.log.list</field>
+        <field name="model">migration.export.log</field>
+        <field name="arch" type="xml">
+            <tree string="Log de Exportación"
+                  decoration-success="state == 'done'"
+                  decoration-danger="state == 'error'"
+                  decoration-info="state == 'running'">
+                <field name="model_name"/>
+                <field name="state" widget="badge"
+                       decoration-success="state == 'done'"
+                       decoration-danger="state == 'error'"
+                       decoration-info="state == 'running'"/>
+                <field name="records_exported"/>
+                <field name="last_export_date"/>
+                <field name="error_message" optional="hide"/>
+            </tree>
+        </field>
+    </record>
+
+    <record id="action_migration_export_log" model="ir.actions.act_window">
+        <field name="name">Log de Exportación</field>
+        <field name="res_model">migration.export.log</field>
+        <field name="view_mode">tree,form</field>
+    </record>
+
+    <!-- ============================
+         Menú bajo Technical
+         ============================ -->
+    <menuitem id="menu_migration_root_v15"
+              name="Migración v15→v18"
+              parent="base.menu_administration"
+              sequence="99"
+              groups="base.group_system"/>
+
+    <menuitem id="menu_migration_push_manual"
+              name="Push Manual"
+              parent="menu_migration_root_v15"
+              action="action_migration_push_wizard"
+              sequence="10"/>
+
+    <menuitem id="menu_migration_export_log"
+              name="Log de Exportación"
+              parent="menu_migration_root_v15"
+              action="action_migration_export_log"
+              sequence="20"/>
+</odoo>

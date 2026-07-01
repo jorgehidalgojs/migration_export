@@ -1,0 +1,30 @@
+{
+    'name': 'Migration Export (v15 Sender)',
+    'version': '15.0.1.1.0',
+    'category': 'Technical',
+    'summary': 'Exporta nomencladores y procesos abiertos hacia Odoo 18 vía REST API por lotes',
+    'author': 'BSTS',
+    'license': 'LGPL-3',
+    'depends': [
+        'base', 'mail',
+        'sale_management',
+        'purchase',
+        'account',
+        'stock',
+        'hr_holidays',
+        'project',
+        'crm',
+        'uom',
+        'analytic',
+    ],
+    # hr_payroll es Enterprise/opcional — añadir manualmente a depends si está instalado
+    'external_dependencies': {'python': ['requests']},
+    'data': [
+        'security/ir.model.access.csv',
+        'views/migration_export_views.xml',
+        'data/cron.xml',
+    ],
+    'installable': True,
+    'application': False,
+    'auto_install': False,
+}

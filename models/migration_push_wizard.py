@@ -167,6 +167,9 @@ class MigrationPushWizard(models.TransientModel):
         if not selected:
             raise UserError("Seleccione al menos un modelo para exportar.")
 
+        # Validar conectividad antes de empezar
+        self._ping_receiver()
+
         headers = {
             'X-Migration-Key': self.target_api_key,
             'Content-Type': 'application/json',
@@ -176,34 +179,84 @@ class MigrationPushWizard(models.TransientModel):
 
         total = 0
         errors = []
+        Log = self.env['migration.export.log']
 
         for model_name in IMPORT_ORDER:
             if model_name not in selected:
                 continue
+            if model_name not in self.env:
+                continue
+
+            # Crear/actualizar entrada de log visible para el usuario
+            log = Log.search([('model_name', '=', model_name)], limit=1)
+            if not log:
+                log = Log.create({'model_name': model_name})
+            log.write({'state': 'running', 'error_message': False})
+            self.env.cr.commit()
+
             try:
                 pushed = self._push_model(
                     model_name, company_id, company_name, headers
                 )
                 total += pushed
-                _logger.info("Push %s: %d registros", model_name, pushed)
+                log.write({
+                    'state': 'done',
+                    'records_exported': pushed,
+                    'last_export_date': fields.Datetime.now(),
+                })
+                self.env.cr.commit()
+                _logger.info("Push %s: %d registros enviados", model_name, pushed)
             except Exception as exc:
                 err = f"{model_name}: {exc}"
                 errors.append(err)
+                log.write({'state': 'error', 'error_message': str(exc)})
+                self.env.cr.commit()
                 _logger.error("Error empujando %s: %s", model_name, exc)
 
+        msg_type = 'danger' if errors else 'success'
         msg = f"Push completado: {total} registros enviados."
         if errors:
-            msg += f"\n\nErrores:\n" + "\n".join(errors[:10])
-
-        self.result_message = msg
+            msg += f" Errores en: {', '.join(e.split(':')[0] for e in errors[:5])}"
 
         return {
-            'type': 'ir.actions.act_window',
-            'res_model': 'migration.push.wizard',
-            'res_id': self.id,
-            'view_mode': 'form',
-            'target': 'new',
+            'type': 'ir.actions.client',
+            'tag': 'display_notification',
+            'params': {
+                'title': 'Migración Push',
+                'message': msg,
+                'type': msg_type,
+                'sticky': True,
+                'next': {
+                    'type': 'ir.actions.act_window',
+                    'name': 'Log de Exportación',
+                    'res_model': 'migration.export.log',
+                    'view_mode': 'tree,form',
+                    'target': 'current',
+                },
+            },
         }
+
+    def _ping_receiver(self):
+        """Verifica conectividad con el receptor antes del push."""
+        try:
+            resp = requests.get(
+                f'{self.target_url.rstrip("/")}/migration/import/ping',
+                timeout=10,
+            )
+            if resp.status_code != 200:
+                raise UserError(
+                    f"El receptor respondió con código {resp.status_code}. "
+                    f"Verifique la URL: {self.target_url}"
+                )
+        except requests.ConnectionError:
+            raise UserError(
+                f"No se pudo conectar con el receptor en:\n{self.target_url}\n\n"
+                "Verifique que la URL es correcta y el servidor está accesible."
+            )
+        except requests.Timeout:
+            raise UserError(
+                f"Tiempo de espera agotado conectando a:\n{self.target_url}"
+            )
 
     def _push_model(
         self, model_name, company_id, company_name, headers

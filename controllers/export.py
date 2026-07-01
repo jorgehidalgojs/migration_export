@@ -82,7 +82,7 @@ EXPORTABLE_MODELS = {
                                  'product_tmpl_id', 'product_id', 'categ_id',
                                  'min_quantity', 'fixed_price', 'percent_price',
                                  'price_discount', 'price_surcharge', 'date_start', 'date_end'],
-    'product.supplierinfo':     ['product_tmpl_id', 'partner_id', 'product_name',
+    'product.supplierinfo':     ['product_tmpl_id', 'name', 'product_name',
                                  'product_code', 'min_qty', 'price', 'currency_id',
                                  'delay', 'company_id'],
     # --- Empleados ---

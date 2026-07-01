@@ -48,7 +48,7 @@ LINE_CONFIG = {
     'purchase.order': ('order_line', [
         'product_id', 'name', 'product_qty', 'price_unit',
         'taxes_id', 'product_uom', 'date_planned', 'sequence',
-        'qty_received', 'qty_billed',
+        'qty_received', 'qty_invoiced',
     ]),
     'account.move': ('invoice_line_ids', [
         'account_id', 'name', 'quantity', 'price_unit',

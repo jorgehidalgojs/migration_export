@@ -156,6 +156,12 @@ class MigrationPushWizard(models.TransientModel):
             except Exception:
                 line.record_count = 0
 
+    def action_select_all(self):
+        self.model_line_ids.write({'selected': True})
+
+    def action_deselect_all(self):
+        self.model_line_ids.write({'selected': False})
+
     def action_push_now(self):
         self.ensure_one()
         if not self.target_url or not self.target_api_key:

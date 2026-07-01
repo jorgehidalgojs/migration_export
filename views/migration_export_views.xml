@@ -22,6 +22,16 @@
                 </group>
 
                 <separator string="Modelos a Exportar"/>
+                <div class="mb8">
+                    <button name="action_select_all"
+                            string="✔ Seleccionar todo"
+                            type="object"
+                            class="btn-secondary btn-sm me-2"/>
+                    <button name="action_deselect_all"
+                            string="✘ Deseleccionar todo"
+                            type="object"
+                            class="btn-secondary btn-sm"/>
+                </div>
                 <field name="model_line_ids" nolabel="1">
                     <tree editable="bottom">
                         <field name="selected" widget="boolean_toggle"/>

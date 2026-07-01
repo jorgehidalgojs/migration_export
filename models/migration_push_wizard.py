@@ -176,6 +176,22 @@ class MigrationPushWizard(models.TransientModel):
 
     def action_push_now(self):
         self.ensure_one()
+
+        # Confirmación inmediata de que el botón funciona
+        self.result_message = "⏳ Iniciando push, por favor espere..."
+        self.env.cr.commit()
+
+        try:
+            return self._do_push()
+        except UserError:
+            raise
+        except Exception as exc:
+            _logger.exception("Error inesperado en action_push_now")
+            self.result_message = f"❌ Error inesperado: {exc}"
+            self.env.cr.commit()
+            return self._reopen_wizard()
+
+    def _do_push(self):
         if not self.target_url or not self.target_api_key:
             raise UserError(
                 "Configure la URL del receptor y la API Key antes de continuar."
@@ -185,7 +201,9 @@ class MigrationPushWizard(models.TransientModel):
         if not selected:
             raise UserError("Seleccione al menos un modelo para exportar.")
 
-        # Validar conectividad antes de empezar
+        self.result_message = f"⏳ Verificando conexión con {self.target_url} ..."
+        self.env.cr.commit()
+
         self._ping_receiver()
 
         headers = {

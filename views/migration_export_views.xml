@@ -88,16 +88,16 @@
     </record>
 
     <!-- ============================
-         Menú bajo Technical
+         Menú raíz propio (visible en la barra de apps)
          ============================ -->
     <menuitem id="menu_migration_root_v15"
-              name="Migración v15→v18"
-              parent="base.menu_administration"
+              name="Migración"
               sequence="99"
-              groups="base.group_system"/>
+              groups="base.group_system"
+              web_icon="migration_export,static/description/icon.png"/>
 
     <menuitem id="menu_migration_push_manual"
-              name="Push Manual"
+              name="Push Manual a v18"
               parent="menu_migration_root_v15"
               action="action_migration_push_wizard"
               sequence="10"/>

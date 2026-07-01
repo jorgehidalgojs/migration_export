@@ -24,6 +24,7 @@
         'views/migration_export_views.xml',
         'data/cron.xml',
     ],
+    'assets': {},
     'installable': True,
     'application': False,
     'auto_install': False,

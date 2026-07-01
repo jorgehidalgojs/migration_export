@@ -213,28 +213,16 @@ class MigrationPushWizard(models.TransientModel):
                 self.env.cr.commit()
                 _logger.error("Error empujando %s: %s", model_name, exc)
 
-        msg_type = 'danger' if errors else 'success'
         msg = f"Push completado: {total} registros enviados."
         if errors:
-            msg += f" Errores en: {', '.join(e.split(':')[0] for e in errors[:5])}"
+            msg += f"\nErrores en: {', '.join(e.split(':')[0] for e in errors[:5])}"
 
-        return {
-            'type': 'ir.actions.client',
-            'tag': 'display_notification',
-            'params': {
-                'title': 'Migración Push',
-                'message': msg,
-                'type': msg_type,
-                'sticky': True,
-                'next': {
-                    'type': 'ir.actions.act_window',
-                    'name': 'Log de Exportación',
-                    'res_model': 'migration.export.log',
-                    'view_mode': 'tree,form',
-                    'target': 'current',
-                },
-            },
-        }
+        self.result_message = msg
+
+        # Redirigir al log de exportación para ver el resultado
+        action = self.env.ref('migration_export.action_migration_export_log').read()[0]
+        action['target'] = 'current'
+        return action
 
     def _ping_receiver(self):
         """Verifica conectividad con el receptor antes del push."""

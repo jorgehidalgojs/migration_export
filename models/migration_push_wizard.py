@@ -241,14 +241,10 @@ class MigrationPushWizard(models.TransientModel):
             f"  • Con error:               {totals['failed']}"
         )
         if errors:
-            msg += f"\n\nModelos con error:\n" + "\n".join(f"  - {e}" for e in errors[:5])
+            msg += "\n\nModelos con error:\n" + "\n".join(f"  - {e}" for e in errors[:5])
 
         self.result_message = msg
-
-        # Redirigir al log de exportación para ver el resultado
-        action = self.env.ref('migration_export.action_migration_export_log').read()[0]
-        action['target'] = 'current'
-        return action
+        return self._reopen_wizard()
 
     def _ping_receiver(self):
         """Verifica conectividad con el receptor antes del push."""

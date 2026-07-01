@@ -177,7 +177,7 @@ class MigrationPushWizard(models.TransientModel):
         company_id = self.company_id.id
         company_name = self.company_id.name
 
-        total = 0
+        totals = {'imported': 0, 'skipped': 0, 'failed': 0}
         errors = []
         Log = self.env['migration.export.log']
 
@@ -187,7 +187,6 @@ class MigrationPushWizard(models.TransientModel):
             if model_name not in self.env:
                 continue
 
-            # Crear/actualizar entrada de log visible para el usuario
             log = Log.search([('model_name', '=', model_name)], limit=1)
             if not log:
                 log = Log.create({'model_name': model_name})
@@ -195,17 +194,21 @@ class MigrationPushWizard(models.TransientModel):
             self.env.cr.commit()
 
             try:
-                pushed = self._push_model(
-                    model_name, company_id, company_name, headers
-                )
-                total += pushed
+                stats = self._push_model(model_name, company_id, company_name, headers)
+                for k in totals:
+                    totals[k] += stats.get(k, 0)
+                processed = stats.get('imported', 0) + stats.get('skipped', 0) + stats.get('failed', 0)
                 log.write({
                     'state': 'done',
-                    'records_exported': pushed,
+                    'records_exported': processed,
                     'last_export_date': fields.Datetime.now(),
                 })
                 self.env.cr.commit()
-                _logger.info("Push %s: %d registros enviados", model_name, pushed)
+                _logger.info(
+                    "Push %s: importados=%d omitidos=%d fallidos=%d",
+                    model_name, stats.get('imported', 0),
+                    stats.get('skipped', 0), stats.get('failed', 0),
+                )
             except Exception as exc:
                 err = f"{model_name}: {exc}"
                 errors.append(err)
@@ -213,9 +216,14 @@ class MigrationPushWizard(models.TransientModel):
                 self.env.cr.commit()
                 _logger.error("Error empujando %s: %s", model_name, exc)
 
-        msg = f"Push completado: {total} registros enviados."
+        msg = (
+            f"Push completado:\n"
+            f"  • Importados/actualizados: {totals['imported']}\n"
+            f"  • Ya existían (omitidos):  {totals['skipped']}\n"
+            f"  • Con error:               {totals['failed']}"
+        )
         if errors:
-            msg += f"\nErrores en: {', '.join(e.split(':')[0] for e in errors[:5])}"
+            msg += f"\n\nModelos con error:\n" + "\n".join(f"  - {e}" for e in errors[:5])
 
         self.result_message = msg
 
@@ -259,7 +267,7 @@ class MigrationPushWizard(models.TransientModel):
             domain.append(('company_id', '=', company_id))
 
         offset = 0
-        total = 0
+        totals = {'imported': 0, 'skipped': 0, 'failed': 0}
         has_lines = model_name in LINE_CONFIG
 
         while True:
@@ -270,7 +278,6 @@ class MigrationPushWizard(models.TransientModel):
             if not records:
                 break
 
-            # Embeber líneas si el modelo las tiene
             if has_lines:
                 records = self._embed_lines(Model, model_name, records)
 
@@ -282,23 +289,27 @@ class MigrationPushWizard(models.TransientModel):
             }, default=str)
 
             resp = requests.post(
-                f'{self.target_url}/migration/import/batch',
+                f'{self.target_url.rstrip("/")}/migration/import/batch',
                 headers=headers,
                 data=payload,
                 timeout=120,
             )
             resp.raise_for_status()
             result = resp.json()
-            total += result.get('imported', 0)
 
-            # Usar has_more del receptor para decidir si continuar
-            if not result.get('has_more', len(records) >= self.batch_size):
+            if 'error' in result:
+                raise Exception(result['error'])
+
+            for k in totals:
+                totals[k] += result.get(k, 0)
+
+            if len(records) < self.batch_size:
                 break
 
             offset += self.batch_size
             time.sleep(self.inter_batch_pause)
 
-        return total
+        return totals
 
     def _embed_lines(self, Model, model_name, records):
         """Añade las líneas embebidas a cada registro del lote."""

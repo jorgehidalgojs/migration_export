@@ -58,13 +58,14 @@ LINE_CONFIG = {
 }
 
 
-class MigrationPushWizardModel(models.TransientModel):
-    _name = 'migration.push.wizard.model'
-    _description = 'Selección de Modelo para Push'
+class MigrationPushModelLine(models.Model):
+    """Línea de selección de modelo — persistente para no perder estado."""
+    _name = 'migration.push.model.line'
+    _description = 'Línea de Modelo para Push'
     _order = 'sequence'
 
-    wizard_id = fields.Many2one(
-        comodel_name='migration.push.wizard',
+    config_id = fields.Many2one(
+        comodel_name='migration.push.config',
         required=True,
         ondelete='cascade',
     )
@@ -74,10 +75,12 @@ class MigrationPushWizardModel(models.TransientModel):
     selected = fields.Boolean(string='Exportar', default=True)
 
 
-class MigrationPushWizard(models.TransientModel):
-    _name = 'migration.push.wizard'
-    _description = 'Wizard de Push Manual de Migración'
+class MigrationPushConfig(models.Model):
+    """Configuración persistente del push — no TransientModel, evita problemas de diálogo."""
+    _name = 'migration.push.config'
+    _description = 'Configuración de Push de Migración'
 
+    name = fields.Char(default='Configuración Push', readonly=True)
     company_id = fields.Many2one(
         comodel_name='res.company',
         string='Empresa a Migrar',
@@ -86,125 +89,141 @@ class MigrationPushWizard(models.TransientModel):
     )
     target_url = fields.Char(
         string='URL del Receptor (v18)',
-        required=True,
-        default=lambda self: self.env['ir.config_parameter'].sudo().get_param(
-            'migration_export.receiver_url', ''
-        ),
+        help='Ejemplo: https://mi-odoo18.ejemplo.com',
     )
     target_api_key = fields.Char(
         string='API Key del Receptor',
-        required=True,
-        default=lambda self: self.env['ir.config_parameter'].sudo().get_param(
-            'migration_export.receiver_api_key', ''
-        ),
+        password=True,
     )
     batch_size = fields.Integer(
         string='Tamaño de Lote',
         default=100,
-        help='Número de registros por lote. Reducir si el servidor se satura.',
     )
     inter_batch_pause = fields.Float(
         string='Pausa entre Lotes (seg)',
         default=0.5,
     )
-    result_message = fields.Text(string='Resultado', readonly=True)
+    connection_status = fields.Char(
+        string='Estado de Conexión',
+        readonly=True,
+    )
+    result_message = fields.Text(
+        string='Resultado del último push',
+        readonly=True,
+    )
     model_line_ids = fields.One2many(
-        comodel_name='migration.push.wizard.model',
-        inverse_name='wizard_id',
+        comodel_name='migration.push.model.line',
+        inverse_name='config_id',
         string='Modelos a Exportar',
     )
 
     @api.model
-    def default_get(self, fields_list):
-        res = super().default_get(fields_list)
+    def get_or_create_singleton(self):
+        """Devuelve el único registro de configuración, creándolo si no existe."""
+        cfg = self.search([], limit=1)
+        if not cfg:
+            cfg = self.create({'name': 'Configuración Push'})
+            cfg._rebuild_model_lines()
+        return cfg
+
+    def _rebuild_model_lines(self):
+        """(Re)construye las líneas de modelos con sus conteos."""
         from ..controllers.export import EXPORTABLE_MODELS, OPEN_PROCESS_DOMAINS
 
+        self.model_line_ids.unlink()
         lines = []
         for seq, model_name in enumerate(IMPORT_ORDER, start=10):
             if model_name not in EXPORTABLE_MODELS:
+                continue
+            if model_name not in self.env:
                 continue
             try:
                 domain = list(OPEN_PROCESS_DOMAINS.get(model_name, []))
                 Model = self.env[model_name]
                 if 'company_id' in Model._fields:
-                    domain.append(('company_id', '=', self.env.company.id))
+                    domain.append(('company_id', '=', self.company_id.id))
                 count = Model.sudo().search_count(domain)
             except Exception:
                 count = 0
-            lines.append((0, 0, {
+            lines.append({
+                'config_id': self.id,
                 'model_name': model_name,
                 'record_count': count,
                 'selected': True,
                 'sequence': seq,
-            }))
+            })
+        self.env['migration.push.model.line'].create(lines)
 
-        res['model_line_ids'] = lines
-        return res
+    # ------------------------------------------------------------------
+    # Botones de la vista
+    # ------------------------------------------------------------------
 
-    @api.onchange('company_id')
-    def _onchange_company_id(self):
-        """Actualiza los conteos de registros al cambiar de empresa."""
-        from ..controllers.export import EXPORTABLE_MODELS, OPEN_PROCESS_DOMAINS
-
-        for line in self.model_line_ids:
-            try:
-                domain = list(OPEN_PROCESS_DOMAINS.get(line.model_name, []))
-                Model = self.env[line.model_name]
-                if 'company_id' in Model._fields:
-                    domain.append(('company_id', '=', self.company_id.id))
-                line.record_count = Model.sudo().search_count(domain)
-            except Exception:
-                line.record_count = 0
+    def action_rebuild_list(self):
+        """Reconstruye la lista de modelos actualizando los conteos."""
+        self.ensure_one()
+        self._rebuild_model_lines()
+        self.connection_status = False
+        self.result_message = False
 
     def action_select_all(self):
+        self.ensure_one()
         self.model_line_ids.write({'selected': True})
-        return self._reopen_wizard()
 
     def action_deselect_all(self):
+        self.ensure_one()
         self.model_line_ids.write({'selected': False})
-        return self._reopen_wizard()
 
-    def _reopen_wizard(self):
-        return {
-            'type': 'ir.actions.act_window',
-            'res_model': self._name,
-            'res_id': self.id,
-            'view_mode': 'form',
-            'views': [(False, 'form')],
-            'target': 'new',
-        }
+    def action_test_connection(self):
+        """Prueba la conexión con el receptor v18 y muestra el resultado."""
+        self.ensure_one()
+        if not self.target_url:
+            self.connection_status = '❌ URL del receptor no configurada'
+            return
+
+        url = self.target_url.rstrip('/')
+        try:
+            resp = requests.get(
+                f'{url}/migration/import/ping',
+                timeout=10,
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                version = data.get('version', '?')
+                self.connection_status = (
+                    f'✅ Conexión OK — Receptor Odoo {version} responde en {url}'
+                )
+            else:
+                self.connection_status = (
+                    f'⚠️ El receptor respondió con código HTTP {resp.status_code}'
+                )
+        except requests.ConnectionError:
+            self.connection_status = (
+                f'❌ No se pudo conectar a {url} — '
+                'verifique que la URL es correcta y el servidor está accesible'
+            )
+        except requests.Timeout:
+            self.connection_status = f'❌ Tiempo de espera agotado conectando a {url}'
+        except Exception as exc:
+            self.connection_status = f'❌ Error: {exc}'
 
     def action_push_now(self):
+        """Ejecuta el push de los modelos seleccionados al receptor v18."""
         self.ensure_one()
 
-        # Confirmación inmediata de que el botón funciona
-        self.result_message = "⏳ Iniciando push, por favor espere..."
-        self.env.cr.commit()
-
-        try:
-            return self._do_push()
-        except UserError:
-            raise
-        except Exception as exc:
-            _logger.exception("Error inesperado en action_push_now")
-            self.result_message = f"❌ Error inesperado: {exc}"
-            self.env.cr.commit()
-            return self._reopen_wizard()
-
-    def _do_push(self):
         if not self.target_url or not self.target_api_key:
             raise UserError(
-                "Configure la URL del receptor y la API Key antes de continuar."
+                'Configure la URL del receptor y la API Key antes de continuar.'
             )
 
         selected = self.model_line_ids.filtered('selected').mapped('model_name')
         if not selected:
-            raise UserError("Seleccione al menos un modelo para exportar.")
+            raise UserError('Seleccione al menos un modelo para exportar.')
 
-        self.result_message = f"⏳ Verificando conexión con {self.target_url} ..."
+        # Test de conexión previo
+        self.action_test_connection()
         self.env.cr.commit()
-
-        self._ping_receiver()
+        if self.connection_status and self.connection_status.startswith('❌'):
+            raise UserError(self.connection_status)
 
         headers = {
             'X-Migration-Key': self.target_api_key,
@@ -233,7 +252,7 @@ class MigrationPushWizard(models.TransientModel):
                 stats = self._push_model(model_name, company_id, company_name, headers)
                 for k in totals:
                     totals[k] += stats.get(k, 0)
-                processed = stats.get('imported', 0) + stats.get('skipped', 0) + stats.get('failed', 0)
+                processed = sum(stats.get(k, 0) for k in ('imported', 'skipped', 'failed'))
                 log.write({
                     'state': 'done',
                     'records_exported': processed,
@@ -241,54 +260,33 @@ class MigrationPushWizard(models.TransientModel):
                 })
                 self.env.cr.commit()
                 _logger.info(
-                    "Push %s: importados=%d omitidos=%d fallidos=%d",
+                    'Push %s: importados=%d omitidos=%d fallidos=%d',
                     model_name, stats.get('imported', 0),
                     stats.get('skipped', 0), stats.get('failed', 0),
                 )
             except Exception as exc:
-                err = f"{model_name}: {exc}"
-                errors.append(err)
+                errors.append(f'{model_name}: {exc}')
                 log.write({'state': 'error', 'error_message': str(exc)})
                 self.env.cr.commit()
-                _logger.error("Error empujando %s: %s", model_name, exc)
+                _logger.error('Error empujando %s: %s', model_name, exc)
 
-        msg = (
-            f"Push completado:\n"
-            f"  • Importados/actualizados: {totals['imported']}\n"
-            f"  • Ya existían (omitidos):  {totals['skipped']}\n"
-            f"  • Con error:               {totals['failed']}"
+        self.result_message = (
+            f'Push completado {fields.Datetime.now()}:\n'
+            f'  • Importados/actualizados: {totals["imported"]}\n'
+            f'  • Ya existían (omitidos):  {totals["skipped"]}\n'
+            f'  • Con error:               {totals["failed"]}'
         )
         if errors:
-            msg += "\n\nModelos con error:\n" + "\n".join(f"  - {e}" for e in errors[:5])
-
-        self.result_message = msg
-        return self._reopen_wizard()
-
-    def _ping_receiver(self):
-        """Verifica conectividad con el receptor antes del push."""
-        try:
-            resp = requests.get(
-                f'{self.target_url.rstrip("/")}/migration/import/ping',
-                timeout=10,
+            self.result_message += '\n\nModelos con error:\n' + '\n'.join(
+                f'  - {e}' for e in errors[:10]
             )
-            if resp.status_code != 200:
-                raise UserError(
-                    f"El receptor respondió con código {resp.status_code}. "
-                    f"Verifique la URL: {self.target_url}"
-                )
-        except requests.ConnectionError:
-            raise UserError(
-                f"No se pudo conectar con el receptor en:\n{self.target_url}\n\n"
-                "Verifique que la URL es correcta y el servidor está accesible."
-            )
-        except requests.Timeout:
-            raise UserError(
-                f"Tiempo de espera agotado conectando a:\n{self.target_url}"
-            )
+        self.env.cr.commit()
 
-    def _push_model(
-        self, model_name, company_id, company_name, headers
-    ):
+    # ------------------------------------------------------------------
+    # Push interno
+    # ------------------------------------------------------------------
+
+    def _push_model(self, model_name, company_id, company_name, headers):
         from ..controllers.export import EXPORTABLE_MODELS, OPEN_PROCESS_DOMAINS
 
         fields_to_read = EXPORTABLE_MODELS[model_name]
@@ -344,12 +342,10 @@ class MigrationPushWizard(models.TransientModel):
         return totals
 
     def _embed_lines(self, Model, model_name, records):
-        """Añade las líneas embebidas a cada registro del lote."""
         line_field, line_fields = LINE_CONFIG[model_name]
         record_ids = [r['id'] for r in records]
         parents = Model.sudo().browse(record_ids)
 
-        # Leer todas las líneas en una sola consulta (evita N+1)
         all_line_ids = []
         parent_to_line_ids = {}
         for parent in parents:

@@ -1,71 +1,107 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
     <!-- ============================
-         Wizard de Push Manual
+         Configuración de Push (vista form — página completa, no diálogo)
          ============================ -->
-    <record id="view_migration_push_wizard_form" model="ir.ui.view">
-        <field name="name">migration.push.wizard.form</field>
-        <field name="model">migration.push.wizard</field>
+    <record id="view_migration_push_config_form" model="ir.ui.view">
+        <field name="name">migration.push.config.form</field>
+        <field name="model">migration.push.config</field>
         <field name="arch" type="xml">
-            <form string="Push Manual de Migración">
-                <group string="Configuración de Conexión">
-                    <group>
-                        <field name="company_id"/>
-                        <field name="batch_size"/>
-                        <field name="inter_batch_pause"/>
-                    </group>
-                    <group>
-                        <field name="target_url"
-                               placeholder="https://mi-odoo18.ejemplo.com"/>
-                        <field name="target_api_key" password="True"/>
-                    </group>
-                </group>
+            <form string="Push de Migración v15 → v18">
 
-                <separator string="Modelos a Exportar"/>
-                <div class="mb8">
-                    <button name="action_select_all"
-                            string="✔ Seleccionar todo"
-                            type="object"
-                            class="btn-secondary btn-sm me-2"/>
-                    <button name="action_deselect_all"
-                            string="✘ Deseleccionar todo"
-                            type="object"
-                            class="btn-secondary btn-sm"/>
-                </div>
-                <field name="model_line_ids" nolabel="1">
-                    <tree editable="bottom">
-                        <field name="selected" widget="boolean_toggle"/>
-                        <field name="sequence" column_invisible="True"/>
-                        <field name="model_name" readonly="1"/>
-                        <field name="record_count" readonly="1"/>
-                    </tree>
-                </field>
+                <sheet>
+                    <group string="Conexión con el Receptor (Odoo 18)">
+                        <group>
+                            <field name="company_id"/>
+                            <field name="batch_size"/>
+                            <field name="inter_batch_pause"/>
+                        </group>
+                        <group>
+                            <field name="target_url"
+                                   placeholder="https://mi-odoo18.ejemplo.com"/>
+                            <field name="target_api_key" password="True"/>
+                        </group>
+                    </group>
 
-                <div attrs="{'invisible': [('result_message', '=', False)]}">
-                    <separator string="Resultado"/>
-                    <field name="result_message" widget="text" readonly="1"
-                           nolabel="1"/>
-                </div>
+                    <!-- Test de conexión -->
+                    <group>
+                        <div>
+                            <button name="action_test_connection"
+                                    string="🔌 Probar Conexión"
+                                    type="object"
+                                    class="btn-secondary"/>
+                        </div>
+                        <field name="connection_status"
+                               nolabel="1"
+                               attrs="{'invisible': [('connection_status', '=', False)]}"
+                               readonly="1"/>
+                    </group>
+
+                    <separator string="Modelos a Exportar"/>
+
+                    <div class="mb8">
+                        <button name="action_rebuild_list"
+                                string="↺ Actualizar lista y conteos"
+                                type="object"
+                                class="btn-secondary btn-sm me-2"/>
+                        <button name="action_select_all"
+                                string="✔ Seleccionar todo"
+                                type="object"
+                                class="btn-secondary btn-sm me-2"/>
+                        <button name="action_deselect_all"
+                                string="✘ Deseleccionar todo"
+                                type="object"
+                                class="btn-secondary btn-sm"/>
+                    </div>
+
+                    <field name="model_line_ids" nolabel="1">
+                        <tree editable="bottom">
+                            <field name="selected" widget="boolean_toggle"/>
+                            <field name="sequence" column_invisible="True"/>
+                            <field name="model_name" readonly="1"/>
+                            <field name="record_count" readonly="1"/>
+                        </tree>
+                    </field>
+
+                    <!-- Resultado del último push -->
+                    <group attrs="{'invisible': [('result_message', '=', False)]}">
+                        <separator string="Resultado del último push"/>
+                        <field name="result_message" nolabel="1"
+                               widget="text" readonly="1"/>
+                    </group>
+
+                </sheet>
 
                 <footer>
                     <button name="action_push_now"
-                            string="&#128640; Push Ahora"
+                            string="🚀 Ejecutar Push"
                             type="object"
-                            class="btn-primary"/>
-                    <button string="Cerrar"
-                            class="btn-secondary"
-                            special="cancel"/>
+                            class="btn-primary"
+                            confirm="¿Desea iniciar el push de los modelos seleccionados hacia el receptor v18?"/>
                 </footer>
+
             </form>
         </field>
     </record>
 
-    <!-- Acción para abrir el wizard -->
-    <record id="action_migration_push_wizard" model="ir.actions.act_window">
+    <!-- Acción que abre la configuración en página completa (no diálogo) -->
+    <record id="action_migration_push_config" model="ir.actions.act_window">
         <field name="name">Push Manual de Migración</field>
-        <field name="res_model">migration.push.wizard</field>
+        <field name="res_model">migration.push.config</field>
         <field name="view_mode">form</field>
-        <field name="target">new</field>
+        <field name="target">current</field>
+        <!-- Abre siempre el singleton via contexto especial -->
+        <field name="context">{'form_view_initial_mode': 'edit'}</field>
+    </record>
+
+    <!-- Server action para redirigir al singleton -->
+    <record id="action_open_push_config" model="ir.actions.server">
+        <field name="name">Abrir Configuración de Push</field>
+        <field name="model_id" ref="model_migration_push_config"/>
+        <field name="state">code</field>
+        <field name="code">
+action = env['migration.push.config'].get_or_create_singleton().get_formview_action()
+        </field>
     </record>
 
     <!-- ============================
@@ -109,7 +145,7 @@
     <menuitem id="menu_migration_push_manual"
               name="Push Manual a v18"
               parent="menu_migration_root_v15"
-              action="action_migration_push_wizard"
+              action="action_open_push_config"
               sequence="10"/>
 
     <menuitem id="menu_migration_export_log"

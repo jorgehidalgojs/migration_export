@@ -1,5 +1,5 @@
 id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
 access_migration_export_log_admin,migration.export.log admin,model_migration_export_log,base.group_system,1,1,1,1
 access_migration_export_log_user,migration.export.log user,model_migration_export_log,base.group_user,1,0,0,0
-access_migration_push_wizard_admin,migration.push.wizard admin,model_migration_push_wizard,base.group_system,1,1,1,1
-access_migration_push_wizard_model_admin,migration.push.wizard.model admin,model_migration_push_wizard_model,base.group_system,1,1,1,1
+access_migration_push_config_admin,migration.push.config admin,model_migration_push_config,base.group_system,1,1,1,1
+access_migration_push_model_line_admin,migration.push.model.line admin,model_migration_push_model_line,base.group_system,1,1,1,1

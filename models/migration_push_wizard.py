@@ -233,7 +233,10 @@ class MigrationPushConfig(models.Model):
         company_name = self.company_id.name
 
         totals = {'imported': 0, 'skipped': 0, 'failed': 0}
-        errors = []
+        # model_errors: excepciones de transporte/conexión por modelo
+        model_errors = []
+        # record_errors: errores por registro reportados por el receptor v18
+        record_errors = {}
         Log = self.env['migration.export.log']
 
         for model_name in IMPORT_ORDER:
@@ -253,33 +256,48 @@ class MigrationPushConfig(models.Model):
                 for k in totals:
                     totals[k] += stats.get(k, 0)
                 processed = sum(stats.get(k, 0) for k in ('imported', 'skipped', 'failed'))
+
+                rec_errs = stats.get('errors', [])
+                log_state = 'error' if stats.get('failed', 0) else 'done'
+                log_err_msg = ('\n'.join(rec_errs[:20])) if rec_errs else False
                 log.write({
-                    'state': 'done',
+                    'state': log_state,
                     'records_exported': processed,
                     'last_export_date': fields.Datetime.now(),
+                    'error_message': log_err_msg,
                 })
                 self.env.cr.commit()
+
+                if rec_errs:
+                    record_errors[model_name] = rec_errs
+
                 _logger.info(
                     'Push %s: importados=%d omitidos=%d fallidos=%d',
                     model_name, stats.get('imported', 0),
                     stats.get('skipped', 0), stats.get('failed', 0),
                 )
             except Exception as exc:
-                errors.append(f'{model_name}: {exc}')
+                model_errors.append(f'{model_name}: {exc}')
                 log.write({'state': 'error', 'error_message': str(exc)})
                 self.env.cr.commit()
                 _logger.error('Error empujando %s: %s', model_name, exc)
 
-        self.result_message = (
-            f'Push completado {fields.Datetime.now()}:\n'
-            f'  • Importados/actualizados: {totals["imported"]}\n'
-            f'  • Ya existían (omitidos):  {totals["skipped"]}\n'
-            f'  • Con error:               {totals["failed"]}'
-        )
-        if errors:
-            self.result_message += '\n\nModelos con error:\n' + '\n'.join(
-                f'  - {e}' for e in errors[:10]
-            )
+        lines = [
+            f'Push completado {fields.Datetime.now()}:',
+            f'  • Importados/actualizados: {totals["imported"]}',
+            f'  • Ya existían (omitidos):  {totals["skipped"]}',
+            f'  • Con error:               {totals["failed"]}',
+        ]
+        if model_errors:
+            lines.append('\nErrores de conexión por modelo:')
+            lines += [f'  - {e}' for e in model_errors]
+        if record_errors:
+            lines.append('\nErrores por registro (primeros 5 por modelo):')
+            for m, errs in list(record_errors.items())[:10]:
+                lines.append(f'  [{m}]')
+                lines += [f'    · {e}' for e in errs[:5]]
+            lines.append('\n→ Ver Log de Exportación para el detalle completo.')
+        self.result_message = '\n'.join(lines)
         self.env.cr.commit()
 
     # ------------------------------------------------------------------
@@ -332,6 +350,8 @@ class MigrationPushConfig(models.Model):
 
             for k in totals:
                 totals[k] += result.get(k, 0)
+            totals.setdefault('errors', [])
+            totals['errors'].extend(result.get('errors', []))
 
             if len(records) < self.batch_size:
                 break

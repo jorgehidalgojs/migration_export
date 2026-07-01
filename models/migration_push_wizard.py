@@ -158,9 +158,21 @@ class MigrationPushWizard(models.TransientModel):
 
     def action_select_all(self):
         self.model_line_ids.write({'selected': True})
+        return self._reopen_wizard()
 
     def action_deselect_all(self):
         self.model_line_ids.write({'selected': False})
+        return self._reopen_wizard()
+
+    def _reopen_wizard(self):
+        return {
+            'type': 'ir.actions.act_window',
+            'res_model': self._name,
+            'res_id': self.id,
+            'view_mode': 'form',
+            'views': [(False, 'form')],
+            'target': 'new',
+        }
 
     def action_push_now(self):
         self.ensure_one()

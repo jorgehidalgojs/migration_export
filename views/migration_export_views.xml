@@ -13,6 +13,7 @@
                     <group string="Conexión con el Receptor (Odoo 18)">
                         <group>
                             <field name="company_id"/>
+                            <field name="scope" widget="radio"/>
                             <field name="batch_size"/>
                             <field name="inter_batch_pause"/>
                         </group>

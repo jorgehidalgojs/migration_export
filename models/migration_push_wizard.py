@@ -38,6 +38,17 @@ IMPORT_ORDER = [
     'account.move', 'project.task', 'hr.leave',
 ]
 
+# Modo simple: solo clientes, proveedores, productos y sus relaciones directas
+SIMPLE_ORDER = [
+    'uom.category', 'uom.uom',
+    'res.partner.title', 'res.partner.industry', 'res.partner.category',
+    'product.category', 'product.tag',
+    'product.template',
+    'res.partner', 'res.partner.bank',
+    'product.pricelist', 'product.pricelist.item',
+    'product.supplierinfo',
+]
+
 # Campos de líneas para documentos con sublíneas
 LINE_CONFIG = {
     'sale.order': ('order_line', [
@@ -81,6 +92,17 @@ class MigrationPushConfig(models.Model):
     _description = 'Configuración de Push de Migración'
 
     name = fields.Char(default='Configuración Push', readonly=True)
+    scope = fields.Selection(
+        selection=[
+            ('simple', 'Simple: clientes, proveedores y productos'),
+            ('full', 'Completo: todos los nomencladores y procesos'),
+        ],
+        string='Alcance',
+        default='simple',
+        required=True,
+        help='Simple migra solo contactos, productos y sus relaciones '
+             '(categorías, etiquetas, bancos, tarifas, proveedores de producto).',
+    )
     company_id = fields.Many2one(
         comodel_name='res.company',
         string='Empresa a Migrar',
@@ -126,13 +148,21 @@ class MigrationPushConfig(models.Model):
             cfg._rebuild_model_lines()
         return cfg
 
+    def write(self, vals):
+        res = super().write(vals)
+        if 'scope' in vals:
+            for cfg in self:
+                cfg._rebuild_model_lines()
+        return res
+
     def _rebuild_model_lines(self):
         """(Re)construye las líneas de modelos con sus conteos."""
         from ..controllers.export import EXPORTABLE_MODELS, OPEN_PROCESS_DOMAINS
 
         self.model_line_ids.unlink()
+        order = SIMPLE_ORDER if self.scope == 'simple' else IMPORT_ORDER
         lines = []
-        for seq, model_name in enumerate(IMPORT_ORDER, start=10):
+        for seq, model_name in enumerate(order, start=10):
             if model_name not in EXPORTABLE_MODELS:
                 continue
             if model_name not in self.env:
@@ -318,16 +348,26 @@ class MigrationPushConfig(models.Model):
         totals = {'imported': 0, 'skipped': 0, 'failed': 0}
         has_lines = model_name in LINE_CONFIG
 
+        # En modelos jerárquicos, enviar primero los registros sin padre para
+        # que el receptor pueda resolver parent_id por nombre
+        order = 'id asc'
+        if 'parent_id' in Model._fields and 'parent_id' in fields_to_read:
+            order = 'parent_id desc, id asc'  # NULLS FIRST en PostgreSQL
+
         while True:
             records = Model.sudo().search_read(
                 domain, fields_to_read,
-                offset=offset, limit=self.batch_size, order='id asc',
+                offset=offset, limit=self.batch_size, order=order,
             )
             if not records:
                 break
 
             if has_lines:
                 records = self._embed_lines(Model, model_name, records)
+
+            # M2M: convertir listas de IDs a listas de nombres para que el
+            # receptor v18 pueda resolverlas (los IDs de v15 no sirven en v18)
+            self._convert_m2m_to_names(Model, fields_to_read, records)
 
             payload = json.dumps({
                 'model': model_name,
@@ -360,6 +400,34 @@ class MigrationPushConfig(models.Model):
             time.sleep(self.inter_batch_pause)
 
         return totals
+
+    def _convert_m2m_to_names(self, Model, fields_to_read, records):
+        """Reemplaza in-place los valores M2M ([ids]) por {'__m2m__': [nombres]}."""
+        m2m_fields = [
+            f for f in fields_to_read
+            if f in Model._fields and Model._fields[f].type == 'many2many'
+        ]
+        if not m2m_fields:
+            return
+
+        for field_name in m2m_fields:
+            comodel = self.env[Model._fields[field_name].comodel_name].sudo()
+            # Recolectar todos los IDs del lote y leer nombres en una sola query
+            all_ids = set()
+            for rec in records:
+                all_ids.update(rec.get(field_name) or [])
+            names_by_id = {}
+            if all_ids:
+                for cr in comodel.browse(list(all_ids)):
+                    try:
+                        names_by_id[cr.id] = cr.display_name
+                    except Exception:
+                        continue
+            for rec in records:
+                ids = rec.get(field_name) or []
+                rec[field_name] = {
+                    '__m2m__': [names_by_id[i] for i in ids if i in names_by_id]
+                }
 
     def _embed_lines(self, Model, model_name, records):
         line_field, line_fields = LINE_CONFIG[model_name]

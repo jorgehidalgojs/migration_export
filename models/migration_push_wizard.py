@@ -27,6 +27,7 @@ IMPORT_ORDER = [
     'crm.team', 'crm.stage', 'crm.tag',
     'stock.warehouse', 'stock.location',
     'stock.picking.type', 'stock.route',
+    'res.users',
     'res.partner', 'res.partner.bank',
     'product.pricelist', 'product.pricelist.item',
     'product.supplierinfo',
@@ -44,6 +45,9 @@ SIMPLE_ORDER = [
     'res.partner.title', 'res.partner.industry', 'res.partner.category',
     'product.category', 'product.tag',
     'product.template',
+    # Usuarios antes que partners: el usuario crea su propio partner y el
+    # upsert de res.partner luego lo completa en vez de duplicarlo
+    'res.users',
     'res.partner', 'res.partner.bank',
     'product.pricelist', 'product.pricelist.item',
     'product.supplierinfo',

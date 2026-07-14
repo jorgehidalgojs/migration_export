@@ -68,6 +68,9 @@ EXPORTABLE_MODELS = {
     'stock.picking.type':       ['name', 'code', 'warehouse_id', 'sequence_code',
                                  'company_id', 'active'],
     'stock.route':              ['name', 'active', 'company_id'],
+    # --- Usuarios internos ---
+    'res.users':                ['name', 'login', 'email', 'active', 'lang', 'tz',
+                                 'signature', 'company_id'],
     # --- Contactos ---
     'res.partner':              ['name', 'email', 'phone', 'mobile', 'street', 'street2',
                                  'city', 'zip', 'country_id', 'state_id', 'vat', 'is_company',
@@ -130,6 +133,8 @@ EXPORTABLE_MODELS = {
 
 # Dominios para filtrar sólo registros "abiertos" en procesos
 OPEN_PROCESS_DOMAINS = {
+    # Solo usuarios internos (excluye portal/público)
+    'res.users':     [('share', '=', False)],
     'sale.order':    [('state', 'in', ['draft', 'sent', 'sale'])],
     'purchase.order': [('state', 'in', ['draft', 'sent', 'purchase'])],
     'account.move':  [('state', '=', 'draft')],
